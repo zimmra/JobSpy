@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from itertools import cycle
 
@@ -12,6 +13,8 @@ from markdownify import markdownify as md
 from requests.adapters import HTTPAdapter, Retry
 
 from jobspy.model import CompensationInterval, JobType, Site
+
+FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL")
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -87,9 +90,12 @@ class RequestsRotating(RotatingProxySession, requests.Session):
 
 
 class TLSRotating(RotatingProxySession, tls_client.Session):
-    def __init__(self, proxies=None):
+    def __init__(self, proxies=None, client_identifier=None):
         RotatingProxySession.__init__(self, proxies=proxies)
-        tls_client.Session.__init__(self, random_tls_extension_order=True)
+        kwargs = {"random_tls_extension_order": True}
+        if client_identifier:
+            kwargs["client_identifier"] = client_identifier
+        tls_client.Session.__init__(self, **kwargs)
 
     def execute_request(self, *args, **kwargs):
         if self.proxy_cycle:
@@ -111,13 +117,14 @@ def create_session(
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
+    client_identifier: str | None = None,
 ) -> requests.Session:
     """
     Creates a requests session with optional tls, proxy, and retry settings.
     :return: A session object
     """
     if is_tls:
-        session = TLSRotating(proxies=proxies)
+        session = TLSRotating(proxies=proxies, client_identifier=client_identifier)
     else:
         session = RequestsRotating(
             proxies=proxies,
@@ -132,16 +139,82 @@ def create_session(
     return session
 
 
+def flaresolverr_get(url, max_timeout=60000):
+    """
+    Fetch a URL through FlareSolverr to bypass Cloudflare protection.
+
+    Requires the FLARESOLVERR_URL environment variable to be set
+    (e.g. ``http://localhost:8191/v1``).
+
+    Returns a dict with keys ``response``, ``cookies``, and ``user_agent``
+    on success, or ``None`` if FlareSolverr is not configured or the
+    request fails.
+
+    .. important::
+       When reusing cookies from the solution, the accompanying
+       ``user_agent`` **must** also be sent in subsequent requests,
+       otherwise Cloudflare will reject the clearance cookie.
+    """
+    if not FLARESOLVERR_URL:
+        return None
+
+    _log = create_logger("FlareSolverr")
+    # Ensure this logger respects the current JobSpy log level, even if created later
+    jobspy_logger = logging.getLogger("JobSpy")
+    if jobspy_logger.level:
+        _log.setLevel(jobspy_logger.level)
+    _log.debug(f"requesting {url} via {FLARESOLVERR_URL}")
+    try:
+        payload = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": max_timeout,
+        }
+        headers = {"Content-Type": "application/json"}
+        resp = requests.post(
+            FLARESOLVERR_URL,
+            headers=headers,
+            json=payload,
+            # extra buffer so our timeout outlasts FlareSolverr's own maxTimeout
+            timeout=max_timeout / 1000 + 10,
+        )
+        data = resp.json()
+
+        if data.get("status") == "ok":
+            solution = data["solution"]
+            cookies = solution.get("cookies", [])
+            user_agent = solution.get("userAgent", "")
+            _log.info(f"successfully fetched {url}")
+            _log.debug(
+                f"solution: status={solution.get('status')}, "
+                f"cookies={len(cookies)}, "
+                f"user_agent={user_agent[:60]}..., "
+                f"response_length={len(solution.get('response', ''))}"
+            )
+            return {
+                "response": solution.get("response", ""),
+                "cookies": cookies,
+                "user_agent": user_agent,
+            }
+        else:
+            _log.warning(f"non-ok status from FlareSolverr: {data.get('message', '')}")
+    except Exception as e:
+        _log.error(f"request failed: {e}")
+
+    return None
+
+
 def set_logger_level(verbose: int):
     """
     Adjusts the logger's level. This function allows the logging level to be changed at runtime.
 
     Parameters:
-    - verbose: int {0, 1, 2} (default=2, all logs)
+    - verbose: int {0, 1, 2, 3} (default=2, all info logs)
+      0 = ERROR, 1 = WARNING, 2 = INFO, 3 = DEBUG (includes HTTP request details)
     """
     if verbose is None:
         return
-    level_name = {2: "INFO", 1: "WARNING", 0: "ERROR"}.get(verbose, "INFO")
+    level_name = {3: "DEBUG", 2: "INFO", 1: "WARNING", 0: "ERROR"}.get(verbose, "INFO")
     level = getattr(logging, level_name.upper(), None)
     if level is not None:
         for logger_name in logging.root.manager.loggerDict:
