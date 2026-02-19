@@ -159,6 +159,7 @@ def flaresolverr_get(url, max_timeout=60000):
         return None
 
     _log = create_logger("FlareSolverr")
+    _log.debug(f"requesting {url} via {FLARESOLVERR_URL}")
     try:
         payload = {
             "cmd": "request.get",
@@ -177,11 +178,19 @@ def flaresolverr_get(url, max_timeout=60000):
 
         if data.get("status") == "ok":
             solution = data["solution"]
+            cookies = solution.get("cookies", [])
+            user_agent = solution.get("userAgent", "")
             _log.info(f"successfully fetched {url}")
+            _log.debug(
+                f"solution: status={solution.get('status')}, "
+                f"cookies={len(cookies)}, "
+                f"user_agent={user_agent[:60]}..., "
+                f"response_length={len(solution.get('response', ''))}"
+            )
             return {
                 "response": solution.get("response", ""),
-                "cookies": solution.get("cookies", []),
-                "user_agent": solution.get("userAgent", ""),
+                "cookies": cookies,
+                "user_agent": user_agent,
             }
         else:
             _log.warning(f"non-ok status from FlareSolverr: {data.get('message', '')}")
@@ -196,11 +205,12 @@ def set_logger_level(verbose: int):
     Adjusts the logger's level. This function allows the logging level to be changed at runtime.
 
     Parameters:
-    - verbose: int {0, 1, 2} (default=2, all logs)
+    - verbose: int {0, 1, 2, 3} (default=2, all info logs)
+      0 = ERROR, 1 = WARNING, 2 = INFO, 3 = DEBUG (includes HTTP request details)
     """
     if verbose is None:
         return
-    level_name = {2: "INFO", 1: "WARNING", 0: "ERROR"}.get(verbose, "INFO")
+    level_name = {3: "DEBUG", 2: "INFO", 1: "WARNING", 0: "ERROR"}.get(verbose, "INFO")
     level = getattr(logging, level_name.upper(), None)
     if level is not None:
         for logger_name in logging.root.manager.loggerDict:

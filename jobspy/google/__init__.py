@@ -22,6 +22,8 @@ from jobspy.google.util import log, find_job_info_initial_page, find_job_info
 
 
 class Google(Scraper):
+    MIN_RESPONSE_LENGTH = 1000
+
     def __init__(
         self, proxies: list[str] | str | None = None, ca_cert: str | None = None, user_agent: str | None = None
     ):
@@ -126,20 +128,31 @@ class Google(Scraper):
         params = {"q": query, "udm": "8"}
 
         response_text = None
-        full_url = f"{self.url}?{urlencode(params)}"
-        fs_result = flaresolverr_get(full_url)
-        if fs_result is not None:
-            response_text = fs_result["response"]
-        else:
-            response = self.session.get(
-                self.url, headers=headers_initial, params=params
-            )
-            if response.status_code != 200:
-                log.error(f"Google response status code {response.status_code}")
-                return None, []
-            response_text = response.text
 
-        if not response_text or len(response_text) < 1000:
+        # try direct request first
+        log.debug(f"requesting {self.url} with params {params}")
+        response = self.session.get(
+            self.url, headers=headers_initial, params=params
+        )
+        log.debug(
+            f"direct response: status={response.status_code}, "
+            f"length={len(response.text)}"
+        )
+
+        if response.status_code == 200 and len(response.text) >= self.MIN_RESPONSE_LENGTH:
+            response_text = response.text
+        else:
+            # direct request failed or returned too little data; try FlareSolverr
+            log.warning(
+                f"direct request returned status {response.status_code} / "
+                f"{len(response.text)} bytes, trying FlareSolverr fallback"
+            )
+            full_url = f"{self.url}?{urlencode(params)}"
+            fs_result = flaresolverr_get(full_url)
+            if fs_result is not None:
+                response_text = fs_result["response"]
+
+        if not response_text or len(response_text) < self.MIN_RESPONSE_LENGTH:
             log.error("Google returned an empty or very short response (possible CAPTCHA/block)")
             return None, []
 

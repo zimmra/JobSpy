@@ -99,7 +99,13 @@ class ZipRecruiter(Scraper):
         if continue_token:
             params["continue_from"] = continue_token
         try:
+            log.debug(
+                f"requesting {self.api_url}/jobs-app/jobs with params {params}"
+            )
             res = self.session.get(f"{self.api_url}/jobs-app/jobs", params=params)
+            log.debug(
+                f"api response: status={res.status_code}, length={len(res.text)}"
+            )
             if res.status_code not in range(200, 400):
                 if res.status_code == 429:
                     err = "429 Response - Blocked by ZipRecruiter for too many requests"
@@ -229,6 +235,11 @@ class ZipRecruiter(Scraper):
                 self.session.cookies.set(cookie["name"], cookie["value"])
             if fs_result["user_agent"]:
                 self.session.headers["user-agent"] = fs_result["user_agent"]
+            log.debug(
+                f"applied {len(fs_result['cookies'])} FlareSolverr cookies "
+                f"and user-agent for ZipRecruiter"
+            )
 
         url = f"{self.api_url}/jobs-app/event"
+        log.debug(f"sending session event to {url}")
         self.session.post(url, data=get_cookie_data)
