@@ -298,7 +298,11 @@ def extract_job_type(description: str):
 
 
 def map_str_to_site(site_name: str) -> Site:
-    return Site[site_name.upper()]
+    # Handle special case for ziprecruiter which has an underscore in enum name
+    site_name_upper = site_name.upper()
+    if site_name_upper == "ZIPRECRUITER":
+        site_name_upper = "ZIP_RECRUITER"
+    return Site[site_name_upper]
 
 
 def get_enum_from_value(value_str):
