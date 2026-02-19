@@ -106,9 +106,13 @@ def scrape_jobs(
         scraper = scraper_class(proxies=proxies, ca_cert=ca_cert, user_agent=user_agent)
         scraped_data: JobResponse = scraper.scrape(scraper_input)
         cap_name = site.value.capitalize()
-        site_name = "ZipRecruiter" if cap_name == "Zip_recruiter" else cap_name
-        site_name = "LinkedIn" if cap_name == "Linkedin" else cap_name
-        create_logger(site_name).info(f"finished scraping")
+        if cap_name == "Zip_recruiter":
+            display_name = "ZipRecruiter"
+        elif cap_name == "Linkedin":
+            display_name = "LinkedIn"
+        else:
+            display_name = cap_name
+        create_logger(display_name).info(f"finished scraping")
         return site.value, scraped_data
 
     site_to_jobs_dict = {}
@@ -123,8 +127,14 @@ def scrape_jobs(
         }
 
         for future in as_completed(future_to_site):
-            site_value, scraped_data = future.result()
-            site_to_jobs_dict[site_value] = scraped_data
+            site = future_to_site[future]
+            try:
+                site_value, scraped_data = future.result()
+                site_to_jobs_dict[site_value] = scraped_data
+            except Exception as e:
+                create_logger(site.value).error(
+                    f"scraper failed: {type(e).__name__}: {e}"
+                )
 
     jobs_dfs: list[pd.DataFrame] = []
 

@@ -16,6 +16,7 @@ from jobspy.util import (
     markdown_converter,
     remove_attributes,
     create_logger,
+    flaresolverr_get,
 )
 from jobspy.model import (
     JobPost,
@@ -46,7 +47,9 @@ class ZipRecruiter(Scraper):
         super().__init__(Site.ZIP_RECRUITER, proxies=proxies)
 
         self.scraper_input = None
-        self.session = create_session(proxies=proxies, ca_cert=ca_cert)
+        self.session = create_session(
+            proxies=proxies, ca_cert=ca_cert, client_identifier="safari_ios_16_0"
+        )
         self.session.headers.update(headers)
         self._get_cookies()
 
@@ -107,14 +110,16 @@ class ZipRecruiter(Scraper):
                 return jobs_list, ""
         except Exception as e:
             if "Proxy responded with" in str(e):
-                log.error(f"Indeed: Bad proxy")
+                log.error(f"ZipRecruiter: Bad proxy")
             else:
-                log.error(f"Indeed: {str(e)}")
+                log.error(f"ZipRecruiter: {str(e)}")
             return jobs_list, ""
 
         res_data = res.json()
         jobs_list = res_data.get("jobs", [])
         next_continue_token = res_data.get("continue", None)
+        if not jobs_list:
+            log.warning(f"ZipRecruiter returned 0 jobs (status {res.status_code})")
         with ThreadPoolExecutor(max_workers=self.jobs_per_page) as executor:
             job_results = [executor.submit(self._process_job, job) for job in jobs_list]
 
@@ -214,6 +219,13 @@ class ZipRecruiter(Scraper):
     def _get_cookies(self):
         """
         Sends a session event to the API with device properties.
+        When FlareSolverr is configured, also fetches Cloudflare
+        clearance cookies from the ZipRecruiter website.
         """
+        _, fs_cookies = flaresolverr_get(f"{self.base_url}")
+        if fs_cookies:
+            for cookie in fs_cookies:
+                self.session.cookies.set(cookie["name"], cookie["value"])
+
         url = f"{self.api_url}/jobs-app/event"
         self.session.post(url, data=get_cookie_data)

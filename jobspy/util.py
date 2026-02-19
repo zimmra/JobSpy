@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from itertools import cycle
 
@@ -12,6 +13,8 @@ from markdownify import markdownify as md
 from requests.adapters import HTTPAdapter, Retry
 
 from jobspy.model import CompensationInterval, JobType, Site
+
+FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL")
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -87,9 +90,12 @@ class RequestsRotating(RotatingProxySession, requests.Session):
 
 
 class TLSRotating(RotatingProxySession, tls_client.Session):
-    def __init__(self, proxies=None):
+    def __init__(self, proxies=None, client_identifier=None):
         RotatingProxySession.__init__(self, proxies=proxies)
-        tls_client.Session.__init__(self, random_tls_extension_order=True)
+        kwargs = {"random_tls_extension_order": True}
+        if client_identifier:
+            kwargs["client_identifier"] = client_identifier
+        tls_client.Session.__init__(self, **kwargs)
 
     def execute_request(self, *args, **kwargs):
         if self.proxy_cycle:
@@ -111,13 +117,14 @@ def create_session(
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
+    client_identifier: str | None = None,
 ) -> requests.Session:
     """
     Creates a requests session with optional tls, proxy, and retry settings.
     :return: A session object
     """
     if is_tls:
-        session = TLSRotating(proxies=proxies)
+        session = TLSRotating(proxies=proxies, client_identifier=client_identifier)
     else:
         session = RequestsRotating(
             proxies=proxies,
@@ -130,6 +137,47 @@ def create_session(
         session.verify = ca_cert
 
     return session
+
+
+def flaresolverr_get(url, max_timeout=60000):
+    """
+    Fetch a URL through FlareSolverr to bypass Cloudflare protection.
+
+    Requires the FLARESOLVERR_URL environment variable to be set
+    (e.g. ``http://localhost:8191/v1``).
+
+    Returns (response_text, cookies_list) on success, or (None, None)
+    if FlareSolverr is not configured or the request fails.
+    """
+    if not FLARESOLVERR_URL:
+        return None, None
+
+    _log = create_logger("FlareSolverr")
+    try:
+        payload = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": max_timeout,
+        }
+        headers = {"Content-Type": "application/json"}
+        resp = requests.post(
+            FLARESOLVERR_URL,
+            headers=headers,
+            json=payload,
+            timeout=max_timeout / 1000 + 10,
+        )
+        data = resp.json()
+
+        if data.get("status") == "ok":
+            solution = data["solution"]
+            _log.info(f"successfully fetched {url}")
+            return solution.get("response", ""), solution.get("cookies", [])
+        else:
+            _log.warning(f"non-ok status from FlareSolverr: {data.get('message', '')}")
+    except Exception as e:
+        _log.error(f"request failed: {e}")
+
+    return None, None
 
 
 def set_logger_level(verbose: int):

@@ -5,6 +5,7 @@ import re
 import json
 from typing import Tuple
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from jobspy.google.constant import headers_jobs, headers_initial, async_param
 from jobspy.model import (
@@ -16,7 +17,7 @@ from jobspy.model import (
     Location,
     JobType,
 )
-from jobspy.util import extract_emails_from_text, extract_job_type, create_session
+from jobspy.util import extract_emails_from_text, extract_job_type, create_session, flaresolverr_get
 from jobspy.google.util import log, find_job_info_initial_page, find_job_info
 
 
@@ -120,18 +121,39 @@ class Google(Scraper):
         if self.scraper_input.google_search_term:
             query = self.scraper_input.google_search_term
 
+        log.info(f"google search query: {query}")
+
         params = {"q": query, "udm": "8"}
-        response = self.session.get(self.url, headers=headers_initial, params=params)
+
+        response_text = None
+        fs_text, _ = flaresolverr_get(
+            f"{self.url}?{urlencode(params)}"
+        )
+        if fs_text is not None:
+            response_text = fs_text
+        else:
+            response = self.session.get(
+                self.url, headers=headers_initial, params=params
+            )
+            if response.status_code != 200:
+                log.error(f"Google response status code {response.status_code}")
+                return None, []
+            response_text = response.text
+
+        if not response_text or len(response_text) < 1000:
+            log.error("Google returned an empty or very short response (possible CAPTCHA/block)")
+            return None, []
 
         pattern_fc = r'<div jsname="Yust4d"[^>]+data-async-fc="([^"]+)"'
-        match_fc = re.search(pattern_fc, response.text)
+        match_fc = re.search(pattern_fc, response_text)
         data_async_fc = match_fc.group(1) if match_fc else None
-        jobs_raw = find_job_info_initial_page(response.text)
+        jobs_raw = find_job_info_initial_page(response_text)
         jobs = []
         for job_raw in jobs_raw:
             job_post = self._parse_job(job_raw)
             if job_post:
                 jobs.append(job_post)
+        log.info(f"initial page: {len(jobs)} jobs found, cursor={'yes' if data_async_fc else 'no'}")
         return data_async_fc, jobs
 
     def _get_jobs_next_page(self, forward_cursor: str) -> Tuple[list[JobPost], str]:
