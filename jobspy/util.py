@@ -159,6 +159,10 @@ def flaresolverr_get(url, max_timeout=60000):
         return None
 
     _log = create_logger("FlareSolverr")
+    # Ensure this logger respects the current JobSpy log level, even if created later
+    jobspy_logger = logging.getLogger("JobSpy")
+    if jobspy_logger.level:
+        _log.setLevel(jobspy_logger.level)
     _log.debug(f"requesting {url} via {FLARESOLVERR_URL}")
     try:
         payload = {
