@@ -126,11 +126,10 @@ class Google(Scraper):
         params = {"q": query, "udm": "8"}
 
         response_text = None
-        fs_text, _ = flaresolverr_get(
-            f"{self.url}?{urlencode(params)}"
-        )
-        if fs_text is not None:
-            response_text = fs_text
+        full_url = f"{self.url}?{urlencode(params)}"
+        fs_result = flaresolverr_get(full_url)
+        if fs_result is not None:
+            response_text = fs_result["response"]
         else:
             response = self.session.get(
                 self.url, headers=headers_initial, params=params

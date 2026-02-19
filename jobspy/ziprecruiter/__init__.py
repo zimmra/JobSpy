@@ -220,12 +220,15 @@ class ZipRecruiter(Scraper):
         """
         Sends a session event to the API with device properties.
         When FlareSolverr is configured, also fetches Cloudflare
-        clearance cookies from the ZipRecruiter website.
+        clearance cookies and the matching user-agent from the
+        ZipRecruiter website.
         """
-        _, fs_cookies = flaresolverr_get(f"{self.base_url}")
-        if fs_cookies:
-            for cookie in fs_cookies:
+        fs_result = flaresolverr_get(self.base_url)
+        if fs_result is not None:
+            for cookie in fs_result["cookies"]:
                 self.session.cookies.set(cookie["name"], cookie["value"])
+            if fs_result["user_agent"]:
+                self.session.headers["user-agent"] = fs_result["user_agent"]
 
         url = f"{self.api_url}/jobs-app/event"
         self.session.post(url, data=get_cookie_data)

@@ -146,11 +146,17 @@ def flaresolverr_get(url, max_timeout=60000):
     Requires the FLARESOLVERR_URL environment variable to be set
     (e.g. ``http://localhost:8191/v1``).
 
-    Returns (response_text, cookies_list) on success, or (None, None)
-    if FlareSolverr is not configured or the request fails.
+    Returns a dict with keys ``response``, ``cookies``, and ``user_agent``
+    on success, or ``None`` if FlareSolverr is not configured or the
+    request fails.
+
+    .. important::
+       When reusing cookies from the solution, the accompanying
+       ``user_agent`` **must** also be sent in subsequent requests,
+       otherwise Cloudflare will reject the clearance cookie.
     """
     if not FLARESOLVERR_URL:
-        return None, None
+        return None
 
     _log = create_logger("FlareSolverr")
     try:
@@ -164,6 +170,7 @@ def flaresolverr_get(url, max_timeout=60000):
             FLARESOLVERR_URL,
             headers=headers,
             json=payload,
+            # extra buffer so our timeout outlasts FlareSolverr's own maxTimeout
             timeout=max_timeout / 1000 + 10,
         )
         data = resp.json()
@@ -171,13 +178,17 @@ def flaresolverr_get(url, max_timeout=60000):
         if data.get("status") == "ok":
             solution = data["solution"]
             _log.info(f"successfully fetched {url}")
-            return solution.get("response", ""), solution.get("cookies", [])
+            return {
+                "response": solution.get("response", ""),
+                "cookies": solution.get("cookies", []),
+                "user_agent": solution.get("userAgent", ""),
+            }
         else:
             _log.warning(f"non-ok status from FlareSolverr: {data.get('message', '')}")
     except Exception as e:
         _log.error(f"request failed: {e}")
 
-    return None, None
+    return None
 
 
 def set_logger_level(verbose: int):
