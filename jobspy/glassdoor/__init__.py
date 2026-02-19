@@ -72,9 +72,6 @@ class Glassdoor(Scraper):
         location_id, location_type = self._get_location(
             scraper_input.location, scraper_input.is_remote
         )
-        if location_type is None:
-            log.error("Glassdoor: location not parsed")
-            return JobResponse(jobs=[])
         job_list: list[JobPost] = []
         cursor = None
 
@@ -264,16 +261,23 @@ class Glassdoor(Scraper):
             if res.status_code == 429:
                 err = f"429 Response - Blocked by Glassdoor for too many requests"
                 log.error(err)
-                return None, None
+            elif res.status_code == 403:
+                err = f"403 Response - Blocked by Glassdoor, falling back to remote location"
+                log.warning(err)
+                # Fallback to remote location instead of failing completely
+                return "11047", "STATE"
             else:
                 err = f"Glassdoor response status code {res.status_code}"
                 err += f" - {res.text}"
-                log.error(f"Glassdoor response status code {res.status_code}")
-                return None, None
+                log.error(err)
+            # Return remote location as fallback instead of None
+            log.warning(f"Using remote location as fallback for: {location}")
+            return "11047", "STATE"
         items = res.json()
 
         if not items:
-            raise ValueError(f"Location '{location}' not found on Glassdoor")
+            log.warning(f"Location '{location}' not found on Glassdoor, using remote as fallback")
+            return "11047", "STATE"
         location_type = items[0]["locationType"]
         if location_type == "C":
             location_type = "CITY"
