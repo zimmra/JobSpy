@@ -167,7 +167,7 @@ class ZipRecruiter(Scraper):
     def _parse_website_job_card(self, card: dict) -> JobPost | None:
         """Converts a single hydrateJobCardsResponse job card to a JobPost."""
         listing_key = card.get("listingKey", "")
-        job_url = f"{self.base_url}/jobs//j?lvk={listing_key}"
+        job_url = f"{self.base_url}/jobs/j?lvk={listing_key}"
 
         if job_url in self.seen_urls:
             return None
@@ -314,7 +314,7 @@ class ZipRecruiter(Scraper):
         Processes an individual job dict from the response
         """
         title = job.get("name")
-        job_url = f"{self.base_url}/jobs//j?lvk={job['listing_key']}"
+        job_url = f"{self.base_url}/jobs/j?lvk={job['listing_key']}"
         if job_url in self.seen_urls:
             return
         self.seen_urls.add(job_url)

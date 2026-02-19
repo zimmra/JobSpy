@@ -86,7 +86,7 @@ class Google(Scraper):
             ]
         )
 
-    def _get_initial_cursor_and_jobs(self) -> Tuple[str, list[JobPost]]:
+    def _get_initial_cursor_and_jobs(self) -> Tuple[str | None, list[JobPost]]:
         """Gets initial cursor and jobs to paginate through job listings"""
         query = f"{self.scraper_input.search_term} jobs"
 
@@ -147,16 +147,21 @@ class Google(Scraper):
             response_text = response.text
         else:
             # direct request failed, returned too little data, or is a JS
-            # challenge page (Google returns 200 + large HTML with no job data);
-            # try FlareSolverr fallback
+            # challenge page (Google returns 200 + large HTML with no job data)
             log.warning(
                 f"direct request returned status {response.status_code} / "
-                f"{len(response.text)} bytes (no job data marker), trying FlareSolverr fallback"
+                f"{len(response.text)} bytes (no job data marker)"
             )
             full_url = f"{self.url}?{urlencode(params)}"
             fs_result = flaresolverr_get(full_url)
             if fs_result is not None:
+                log.info("using FlareSolverr fallback for Google jobs request")
                 response_text = fs_result["response"]
+            else:
+                log.warning(
+                    "FlareSolverr not configured or request failed; "
+                    "cannot bypass Google bot detection"
+                )
 
         if not response_text or len(response_text) < self.MIN_RESPONSE_LENGTH:
             log.error("Google returned an empty or very short response (possible CAPTCHA/block)")
@@ -218,8 +223,6 @@ class Google(Scraper):
 
     def _parse_job_card_html(self, card) -> "JobPost | None":
         """Parses a single Google job card from the async callback HTML."""
-        from bs4 import BeautifulSoup
-
         # Job ID and URL are on the inner qodLAe div
         inner = card.find(attrs={"jscontroller": "qodLAe"})
         if not inner:
